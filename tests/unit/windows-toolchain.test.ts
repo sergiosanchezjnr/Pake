@@ -217,6 +217,42 @@ describe('BaseBuilder.runBuildCommand Windows GNU RUSTFLAGS injection', () => {
     const env = vi.mocked(shellExec).mock.calls[0][2];
     expect(env?.RUSTFLAGS).toBeUndefined();
   });
+
+  it('retries once for failed Windows MSI builds', async () => {
+    vi.stubGlobal('process', { ...realProcess, platform: 'win32' });
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    vi.mocked(shellExec)
+      .mockRejectedValueOnce(new Error('first attempt failed'))
+      .mockResolvedValueOnce(0);
+    const builder = new TestBuilder({ debug: true } as any);
+
+    await expect(
+      (builder as any).runBuildCommand(
+        { executable: 'pnpm', args: ['run', 'build:debug'] },
+        'msi',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(shellExec).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Windows MSI build failed, retrying once'),
+    );
+  });
+
+  it('does not retry failed non-MSI Windows builds', async () => {
+    vi.stubGlobal('process', { ...realProcess, platform: 'win32' });
+    vi.mocked(shellExec).mockRejectedValueOnce(new Error('single failure'));
+    const builder = new TestBuilder({ debug: true } as any);
+
+    await expect(
+      (builder as any).runBuildCommand(
+        { executable: 'pnpm', args: ['run', 'build:debug'] },
+        'app',
+      ),
+    ).rejects.toThrow('single failure');
+
+    expect(shellExec).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('WinBuilder raw binary WebView2Loader.dll', () => {

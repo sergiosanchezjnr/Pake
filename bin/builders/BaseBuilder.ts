@@ -300,6 +300,7 @@ export default abstract class BaseBuilder {
 
     const isLinuxAppImage =
       process.platform === 'linux' && target === 'appimage';
+    const isWindowsMsiBuild = process.platform === 'win32' && target === 'msi';
 
     // AppImage builds can fail at the linuxdeploy strip step on glibc 2.38+.
     // A real failure now prints full guidance, so only hint in debug mode.
@@ -314,6 +315,17 @@ export default abstract class BaseBuilder {
     try {
       await shellExec(buildCommand, buildTimeout, resolveExecEnv());
     } catch (error) {
+      // tauri-bundler downloads WiX binaries for MSI packaging from GitHub and
+      // that fetch can intermittently fail in CI. Retry once before surfacing
+      // the failure.
+      if (isWindowsMsiBuild) {
+        logger.warn(
+          '⚠ Windows MSI build failed, retrying once (transient WiX download failures are common in CI).',
+        );
+        await shellExec(buildCommand, buildTimeout, resolveExecEnv());
+        return;
+      }
+
       if (!isLinuxAppImage) {
         throw error;
       }
